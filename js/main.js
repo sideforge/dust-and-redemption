@@ -157,6 +157,15 @@ function castRay(o, d, maxD, minT = 0) {
     t = raySphere(o, d, _c.set(h.x, h.y + 0.6, h.z), 0.38, minT);
     if (t > 0 && t < best.t) best = { t, kind: 'body', ent: h };
   }
+  if (window.MP) for (const r of MP.remotes.values()) {
+    if (!r.alive) continue;
+    let t = raySphere(o, d, _c.set(r.x, r.y + 1.86, r.z), 0.27, minT);
+    if (t > 0 && t < best.t) best = { t, kind: 'pvp', head: true, ent: r };
+    t = raySphere(o, d, _c.set(r.x, r.y + 1.3, r.z), 0.42, minT);
+    if (t > 0 && t < best.t) best = { t, kind: 'pvp', head: false, ent: r };
+    t = raySphere(o, d, _c.set(r.x, r.y + 0.6, r.z), 0.38, minT);
+    if (t > 0 && t < best.t) best = { t, kind: 'pvp', head: false, ent: r };
+  }
   for (const a of animals) {
     if (a.dead) continue;
     const t = raySphere(o, d, _c.set(a.x, a.y + 0.95, a.z), a.type === 'cow' ? 0.9 : a.type === 'wolf' ? 0.55 : 0.75, minT);
@@ -193,6 +202,9 @@ function processHit(hit, w, end, falloff = 1) {
     if (!e.dead) player.deadEye = Math.min(100, player.deadEye + (head ? 3 : 1.2));
     hitMarker(e.dead);
     if (head && !e.dead && w.pellets === 1) toast('Kopftreffer!', 900);
+  } else if (hit.kind === 'pvp') {
+    MP.sendHit(e.id, (hit.head ? w.head : w.dmg) * falloff, hit.head); hitMarker(false);
+    if (hit.head && w.pellets === 1) toast('Kopftreffer!', 900);
   } else if (hit.kind === 'animal') {
     e.hurt((w.dmg + (w.heavy ? 40 : 0)) * falloff, false); hitMarker(e.dead);
   } else if (hit.kind === 'explosive') {
@@ -222,7 +234,7 @@ function fire() {
     d.x += rand(-sp, sp); d.y += rand(-sp, sp); d.z += rand(-sp, sp); d.normalize();
     const hit = castRay(camera.position, d, w.range, camDist);
     const end = camera.position.clone().addScaledVector(d, hit.t);
-    if (i < 4) spawnTracer(mz, end, 0xfff0b0, 0.07);
+    if (i < 4) { spawnTracer(mz, end, 0xfff0b0, 0.07); if (window.MP) MP.sendShot(mz, end); }
     processHit(hit, w, end, w.pellets > 1 ? clamp(1 - hit.t / w.range, 0.12, 1) : 1);
   }
   muzzleFlash(mz);
@@ -860,6 +872,7 @@ function frame(now) {
     SFX.setWind(p.mounted ? clamp(p.horse.speed / 17, 0, 1) : 0.1);
   }
   animatePlayerModel();
+  if (window.MP) MP.tick(rdt);
   updateCamera(rdt);
   updateEnv(gameHours, { x: p.x, y: p.y, z: p.z });
   updateHUD(rdt);

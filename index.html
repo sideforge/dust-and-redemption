@@ -49,6 +49,11 @@
 <div id="title" class="overlay">
   <h1>DUST &amp; REDEMPTION</h1>
   <h2>EINE WESTERN-GESCHICHTE</h2>
+  <div id="mpbox">
+    <input id="mpName" maxlength="14" placeholder="Dein Name" autocomplete="off">
+    <input id="mpRoom" maxlength="8" placeholder="Raumcode (leer = neuer Raum)" autocomplete="off">
+    <div id="mpStatus">Leer lassen = neuen Raum er&ouml;ffnen, Code an Freunde schicken. Oder Code eingeben zum Beitreten.</div>
+  </div>
   <button class="big" id="btnPlay">SPIELEN</button>
   <div id="controls">
     <div><b>W A S D</b> Laufen / Reiten</div><div><b>Shift</b> Sprinten / Galopp</div><div><b>Leertaste</b> Springen</div><div><b>Strg</b> Langsam gehen</div>
@@ -66,5 +71,7 @@
 <script src="js/world.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/main.js"></script>
+<script src="js/peerjs.min.js"></script>
+<script src="js/mp.js"></script>
 </body>
 </html>

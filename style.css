@@ -65,6 +65,10 @@ button.big:hover { filter: brightness(1.12); }
 #pause small { display: block; margin-top: 12px; font-family: 'Special Elite', Georgia, serif; font-size: 16px; color: #d8c290; }
 #dead { background: rgba(60,0,0,.55); backdrop-filter: grayscale(1); }
 #dead .bt { font-family: 'Rye', Georgia, serif; font-size: clamp(36px, 7vw, 84px); color: #d8b060; text-shadow: 4px 4px 0 #000; letter-spacing: 4px; }
+#mpbox { display: flex; flex-direction: column; gap: 8px; width: min(340px, 86vw); margin-bottom: 22px; }
+#mpbox input { font-family: inherit; font-size: 17px; padding: 8px 12px; background: rgba(10,6,2,.7); color: #f2e2b8; border: 1px solid #c9a86a; text-align: center; user-select: text; }
+#mpStatus { font-size: 13px; color: #d8c290; min-height: 34px; }
+#mpHud { position: fixed; right: 24px; top: 18px; text-align: right; font-size: 14px; text-shadow: 1px 1px 3px #000; pointer-events: none; display: none; }
 #bigmap { background: rgba(10,6,2,.85); z-index: 5; }
 #bigcanvas { width: min(88vh, 88vw); height: min(88vh, 88vw); border: 6px solid #3a2a1a; box-shadow: 0 0 0 2px #c9a86a; }
 
