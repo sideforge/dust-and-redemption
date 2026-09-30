@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Dust &amp; Redemption</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div id="vig"></div>
+  <div id="deo"></div>
+  <div id="cross"></div>
+  <div id="hitm"></div>
+  <div id="marks"></div>
+  <div id="scope"></div>
+  <div id="mini-wrap"><canvas id="mini" width="190" height="190"></canvas></div>
+  <div id="clock">08:30</div>
+  <div id="loc">Copper Creek</div>
+  <div id="bars">
+    <div class="lbl">GESUNDHEIT</div><div class="bar" id="hp"><div id="hpfill"></div></div>
+    <div class="lbl">DEAD EYE</div><div class="bar"><div id="defill"></div></div>
+    <div id="stam"><div class="lbl">AUSDAUER PFERD</div><div class="bar"><div id="stfill"></div></div></div>
+  </div>
+  <div id="right">
+    <div id="wname">Revolver</div>
+    <div id="ammo">6 / 48</div>
+    <div id="money">$25</div>
+    <div id="items"></div>
+    <div id="stars"></div>
+    <div class="lbl" style="margin-top:6px">EHRE</div>
+    <div id="honorbar"><div id="honor"></div></div>
+  </div>
+  <div id="objective-wrap"><div id="objlbl">AUFTRAG</div><div id="objective"></div></div>
+  <div id="prompt"></div>
+  <div id="toast"></div>
+  <div id="subtitle"></div>
+  <div id="banner"></div>
+</div>
+
+<div id="pause" class="overlay">PAUSE<small>Klicken zum Fortsetzen &nbsp;·&nbsp; P = Pause</small></div>
+<div id="dead" class="overlay"><div class="bt">DU BIST GESTORBEN</div><div style="margin-top:14px;font-size:20px">Der Doktor holt dich ab…</div></div>
+<div id="menu" class="overlay"><div id="menubody"></div><button class="big small" id="menuclose">Schließen</button></div>
+<div id="bigmap" class="overlay"><canvas id="bigcanvas" width="900" height="900"></canvas></div>
+
+<div id="title" class="overlay">
+  <h1>DUST &amp; REDEMPTION</h1>
+  <h2>EINE WESTERN-GESCHICHTE</h2>
+  <button class="big" id="btnPlay">SPIELEN</button>
+  <div id="controls">
+    <div><b>W A S D</b> Laufen / Reiten</div><div><b>Shift</b> Sprinten / Galopp</div><div><b>Leertaste</b> Springen</div><div><b>Strg</b> Langsam gehen</div>
+    <div><b>Maus</b> Umsehen</div><div><b>Rechte Maus</b> Zielen</div><div><b>Linke Maus</b> Schießen</div><div><b>R</b> Nachladen</div>
+    <div><b>E</b> Interagieren / Auf-/Absteigen</div><div><b>H</b> Pferd rufen</div><div><b>1–6 / Rad</b> Waffe wechseln</div><div><b>Q</b> Dead Eye</div>
+    <div><b>Tab</b> Rucksack</div><div><b>G</b> Dynamit werfen</div><div><b>F</b> Heiltonikum</div><div><b>M</b> Karte</div>
+    <div><b>N</b> Musik an/aus</div><div><b>P / Esc</b> Pause</div><div><b>Pfeiltasten</b> Blick (Ersatz)</div><div></div>
+  </div>
+</div>
+<div id="loading">Lade die Prärie…</div>
+
+<script src="js/three.min.js"></script>
+<script src="js/util.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/world.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
