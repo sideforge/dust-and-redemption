@@ -3,13 +3,23 @@
 (() => {
   const PREFIX = 'dustred-';
   const COLORS = [0x9a3a2a, 0x2a5a8a, 0x3a7a3a, 0x7a4a9a, 0x9a7a2a, 0x2a7a7a];
+  // Ohne TURN-Relay scheitern Verbindungen zwischen verschiedenen Netzen (Mobilfunk, CGNAT, Firmen-WLAN) oft.
+  // Die TURN-Server von PeerJS sind unzuverlässig: eigene Zugangsdaten (z. B. metered.ca, Cloudflare) per window.MP_TURN eintragen.
+  const ICE = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    ...(window.MP_TURN || []),
+    { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+  ];
+  const PEER_OPTS = { config: { iceServers: ICE }, debug: 1 };
+  const JOIN_TIMEOUT = 25, STALE = 30;
   const remotes = new Map();
   const conns = new Map(); // nur Host: id -> DataConnection
-  let peer = null, isHost = false, hostConn = null, myId = null, room = '', myName = 'Cowboy', myColor = 0, sendT = 0, active = false;
+  let peer = null, isHost = false, hostConn = null, myId = null, room = '', myName = 'Cowboy', myColor = 0, sendT = 0, active = false, joining = false, joinTimer = 0;
 
   const hud = document.createElement('div'); hud.id = 'mpHud'; document.body.appendChild(hud);
   const status = (s) => { const el = document.getElementById('mpStatus'); if (el) el.textContent = s; };
-  const updateHud = () => { hud.style.display = active ? 'block' : 'none'; hud.textContent = `RAUM ${room} · ${remotes.size + 1} Spieler`; };
+  const updateHud = () => { hud.style.display = active || joining ? 'block' : 'none'; hud.textContent = active ? `RAUM ${room} · ${remotes.size + 1} Spieler` : `VERBINDE MIT RAUM ${room}…`; };
 
   function nameTag(text) {
     const c = document.createElement('canvas'); c.width = 256; c.height = 64;
@@ -25,7 +35,7 @@
     const model = makeHumanoid({ shirt: COLORS[(m.c || 0) % COLORS.length], pants: 0x2f3a4a, hat: 0x3a2a1a, vest: 0x4a3020, scarf: 0xc9b060 });
     const tag = nameTag(m.n || 'Cowboy'); model.g.add(tag);
     scene.add(model.g);
-    r = { id, name: m.n || 'Cowboy', model, x: m.x, y: m.y, z: m.z, yaw: m.yaw, tx: m.x, ty: m.y, tz: m.z, tyaw: m.yaw, alive: true, aim: false, pitch: 0, weapon: 'rev', mounted: false, sp: 0, phase: 0, deadT: 0 };
+    r = { id, name: m.n || 'Cowboy', model, seen: performance.now(), x: m.x, y: m.y, z: m.z, yaw: m.yaw, tx: m.x, ty: m.y, tz: m.z, tyaw: m.yaw, alive: true, aim: false, pitch: 0, weapon: 'rev', mounted: false, sp: 0, phase: 0, deadT: 0 };
     remotes.set(id, r); updateHud();
     toast(`${r.name} ist beigetreten`, 2500);
     return r;
@@ -47,7 +57,8 @@
       case 's': {
         if (m.id === myId) return;
         const r = getRemote(m.id, m);
-        r.tx = m.x; r.ty = m.y; r.tz = m.z; r.tyaw = m.yaw; r.pitch = m.p; r.aim = !!m.aim; r.weapon = m.w; r.mounted = !!m.m; r.sp = m.sp;
+        if (Math.hypot(m.x - r.tx, m.z - r.tz) > 30) { r.x = m.x; r.y = m.y; r.z = m.z; } // Respawn/Teleport nicht quer über die Karte gleiten
+        r.seen = performance.now(); r.tx = m.x; r.ty = m.y; r.tz = m.z; r.tyaw = m.yaw; r.pitch = m.p; r.aim = !!m.aim; r.weapon = m.w; r.mounted = !!m.m; r.sp = m.sp;
         if (r.alive && !m.a) r.deadT = 0; r.alive = !!m.a; r.name = m.n || r.name;
         break;
       }
@@ -64,9 +75,21 @@
     }
   }
 
+  function hostLost() {
+    if (!active) return;
+    toast('Verbindung zum Host verloren', 5000);
+    for (const id of [...remotes.keys()]) dropRemote(id);
+    active = false; updateHud();
+  }
   function attach(conn) {
     conn.on('data', (m) => onMsg(m, conn.peer));
-    conn.on('close', () => { if (isHost) { conns.delete(conn.peer); dropRemote(conn.peer); sendAll({ t: 'l', id: conn.peer }); } else { toast('Host hat das Spiel verlassen', 5000); for (const id of [...remotes.keys()]) dropRemote(id); active = false; updateHud(); } });
+    const gone = () => { if (isHost) { if (!conns.delete(conn.peer)) return; dropRemote(conn.peer); sendAll({ t: 'l', id: conn.peer }); } else hostLost(); };
+    conn.on('close', gone);
+    conn.on('error', gone);
+  }
+  // Signalisierungsserver neu verbinden, sonst kann niemand mehr beitreten (bestehende Verbindungen laufen weiter)
+  function keepSignaling() {
+    peer.on('disconnected', () => { if (!peer.destroyed) setTimeout(() => { if (peer.disconnected && !peer.destroyed) peer.reconnect(); }, 1500); });
   }
 
   function start(name, code) {
@@ -74,18 +97,34 @@
     if (typeof Peer === 'undefined') { status('Mehrspieler nicht verfügbar (PeerJS blockiert). Solo-Modus.'); return; }
     if (!code) {
       isHost = true; room = Math.random().toString(36).slice(2, 6).toUpperCase();
-      peer = new Peer(PREFIX + room);
-      peer.on('open', (id) => { myId = id; active = true; updateHud(); toast(`Raumcode: ${room} – Freunde geben ihn ein`, 8000); });
+      peer = new Peer(PREFIX + room, PEER_OPTS);
+      peer.on('open', (id) => { if (active) return; myId = id; active = true; updateHud(); toast(`Raumcode: ${room} – Freunde geben ihn ein`, 8000); });
       peer.on('connection', (c) => { c.on('open', () => { conns.set(c.peer, c); attach(c); }); });
-      peer.on('error', (e) => toast('Netzwerkfehler: ' + e.type, 4000));
+      peer.on('error', (e) => toast(e.type === 'unavailable-id' ? 'Raumcode belegt – Seite neu laden' : 'Netzwerkfehler: ' + e.type, 4000));
+      keepSignaling();
     } else {
-      room = code.trim().toUpperCase(); peer = new Peer();
+      room = code.trim().toUpperCase(); peer = new Peer(PEER_OPTS);
+      joining = true; updateHud();
+      const fail = (msg) => { clearTimeout(joinTimer); if (active || !joining) return; joining = false; updateHud(); toast(msg + ' – Solo-Modus. Zum erneuten Versuch Seite neu laden.', 7000); try { peer.destroy(); } catch (e) { } };
+      joinTimer = setTimeout(() => fail(`Keine Verbindung zu Raum ${room} (Firewall/NAT)`), JOIN_TIMEOUT * 1000);
       peer.on('open', (id) => {
-        myId = id; hostConn = peer.connect(PREFIX + room);
-        hostConn.on('open', () => { attach(hostConn); active = true; updateHud(); toast(`Raum ${room} beigetreten`, 3000); });
+        if (hostConn) return; // Reconnect zum Signalisierungsserver
+        myId = id; hostConn = peer.connect(PREFIX + room, { reliable: true });
+        hostConn.on('open', () => { clearTimeout(joinTimer); attach(hostConn); joining = false; active = true; updateHud(); toast(`Raum ${room} beigetreten`, 3000); });
+        hostConn.on('error', () => fail(`Verbindung zu Raum ${room} fehlgeschlagen`));
       });
-      peer.on('error', (e) => toast(e.type === 'peer-unavailable' ? `Raum ${room} nicht gefunden` : 'Netzwerkfehler: ' + e.type, 5000));
+      peer.on('error', (e) => {
+        if (e.type === 'peer-unavailable') fail(`Raum ${room} nicht gefunden`);
+        else if (!active && e.type !== 'network' && e.type !== 'disconnected') fail('Netzwerkfehler: ' + e.type);
+        else toast('Netzwerkfehler: ' + e.type, 4000);
+      });
+      keepSignaling();
     }
+  }
+
+  function sendState() {
+    const p = player;
+    sendAll({ t: 's', id: myId, n: myName, c: myColor, x: p.x, y: p.y, z: p.z, yaw: p.yaw, p: p.camPitch, a: p.alive, aim: p.aiming || p.faceT > 0, w: p.weapon, m: p.mounted, sp: p.mounted ? 0 : Math.hypot(p.vx, p.vz) });
   }
 
   window.MP = {
@@ -96,10 +135,11 @@
       if (!active) return;
       sendT -= dt;
       if (sendT <= 0) {
-        sendT = 1 / 15; const p = player;
-        sendAll({ t: 's', id: myId, n: myName, c: myColor, x: p.x, y: p.y, z: p.z, yaw: p.yaw, p: p.camPitch, a: p.alive, aim: p.aiming || p.faceT > 0, w: p.weapon, m: p.mounted, sp: p.mounted ? 0 : Math.hypot(p.vx, p.vz) });
+        sendT = 1 / 15; sendState();
       }
-      const k = 1 - Math.exp(-dt * 14);
+      const k = 1 - Math.exp(-dt * 14), now = performance.now();
+      // Geister entfernen, deren Verbindung ohne 'close' abgerissen ist; meldet sich der Spieler wieder, taucht er neu auf
+      for (const r of [...remotes.values()]) if (now - r.seen > STALE * 1000) dropRemote(r.id);
       for (const r of remotes.values()) {
         r.x += (r.tx - r.x) * k; r.y += (r.ty - r.y) * k; r.z += (r.tz - r.z) * k; r.yaw = lerpAngle(r.yaw, r.tyaw, k);
         const m = r.model, g = m.g;
@@ -116,7 +156,9 @@
     },
   };
 
-  addEventListener('beforeunload', () => { if (active) sendAll({ t: 'l', id: myId }); });
+  // Im Hintergrund-Tab läuft requestAnimationFrame nicht, Position trotzdem weiter senden
+  setInterval(() => { if (active && document.hidden) sendState(); }, 1000);
+  for (const ev of ['beforeunload', 'pagehide']) addEventListener(ev, () => { if (active) sendAll({ t: 'l', id: myId }); });
   const btn = document.getElementById('btnPlay');
   btn.addEventListener('click', () => { if (!peer) start(document.getElementById('mpName').value, document.getElementById('mpRoom').value); });
   for (const id of ['mpName', 'mpRoom']) document.getElementById(id).addEventListener('keydown', (e) => e.stopPropagation());
