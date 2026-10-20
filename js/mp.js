@@ -8,7 +8,6 @@
   let peer = null, isHost = false, hostConn = null, myId = null, room = '', myName = 'Cowboy', myColor = 0, sendT = 0, active = false;
 
   const hud = document.createElement('div'); hud.id = 'mpHud'; document.body.appendChild(hud);
-  const status = (s) => { const el = document.getElementById('mpStatus'); if (el) el.textContent = s; };
   const updateHud = () => { hud.style.display = active ? 'block' : 'none'; hud.textContent = `RAUM ${room} · ${remotes.size + 1} Spieler`; };
 
   function nameTag(text) {
@@ -66,26 +65,86 @@
 
   function attach(conn) {
     conn.on('data', (m) => onMsg(m, conn.peer));
-    conn.on('close', () => { if (isHost) { conns.delete(conn.peer); dropRemote(conn.peer); sendAll({ t: 'l', id: conn.peer }); } else { toast('Host hat das Spiel verlassen', 5000); for (const id of [...remotes.keys()]) dropRemote(id); active = false; updateHud(); } });
+    conn.on('close', () => { if (isHost) { conns.delete(conn.peer); dropRemote(conn.peer); sendAll({ t: 'l', id: conn.peer }); } else { if (hostConn !== conn) return; hostConn = null; toast('Host hat das Spiel verlassen', 5000); for (const id of [...remotes.keys()]) dropRemote(id); active = false; updateHud(); } });
+  }
+
+  // Mehr STUN-Server und die TURN-Relays von PeerJS: ohne TURN scheitern viele Verbindungen hinter Mobilfunk-/Router-NAT.
+  const PEER_OPTS = {
+    debug: 1,
+    config: {
+      iceServers: [
+        { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'], username: 'peerjs', credential: 'peerjsp' },
+      ],
+    },
+  };
+  const NET_ERRORS = ['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected'];
+  let reconnectT = null;
+
+  // Der Signalisierungs-Server trennt z. B. nach Funklöchern oder wenn der Tab im Hintergrund war.
+  // Ohne Reconnect ist der Raum danach für neue Spieler "nicht gefunden".
+  function keepSignaling(p) {
+    let delay = 2000;
+    const retry = () => {
+      if (p.destroyed || reconnectT) return;
+      reconnectT = setTimeout(() => { reconnectT = null; if (!p.destroyed && p.disconnected) p.reconnect(); }, delay);
+      delay = Math.min(delay * 2, 30000);
+    };
+    p.on('disconnected', retry);
+    p.on('open', () => { delay = 2000; });
+    p.on('error', (e) => { if (NET_ERRORS.includes(e.type) && p.disconnected) retry(); });
+  }
+
+  function hostRoom(tries = 0) {
+    isHost = true; room = Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, 'X');
+    peer = new Peer(PREFIX + room, PEER_OPTS);
+    keepSignaling(peer);
+    peer.on('open', (id) => {
+      myId = id;
+      if (!active) { active = true; updateHud(); toast(`Raumcode: ${room} – Freunde geben ihn ein`, 8000); }
+    });
+    peer.on('connection', (c) => {
+      c.on('open', () => { conns.set(c.peer, c); attach(c); });
+      c.on('error', (e) => console.warn('MP: Verbindung', c.peer, e));
+    });
+    peer.on('error', (e) => {
+      // Raumcode schon vergeben: neuen würfeln (nur solange der Raum noch nicht offen ist)
+      if (e.type === 'unavailable-id' && !active && tries < 5) { peer.destroy(); hostRoom(tries + 1); return; }
+      if (NET_ERRORS.includes(e.type)) { if (!active) toast('Mehrspieler-Server nicht erreichbar, neuer Versuch…', 4000); return; }
+      toast('Netzwerkfehler: ' + e.type, 4000);
+    });
+  }
+
+  function joinRoom() {
+    peer = new Peer(PEER_OPTS);
+    keepSignaling(peer);
+    peer.on('open', (id) => { myId = id; if (!hostConn) connectHost(); });
+    peer.on('error', (e) => {
+      if (e.type === 'peer-unavailable') { toast(`Raum ${room} nicht gefunden – Code prüfen oder Host neu laden`, 6000); hostConn = null; return; }
+      if (NET_ERRORS.includes(e.type)) { if (!active) toast('Mehrspieler-Server nicht erreichbar, neuer Versuch…', 4000); return; }
+      toast('Netzwerkfehler: ' + e.type, 5000);
+    });
+  }
+
+  function connectHost() {
+    const c = hostConn = peer.connect(PREFIX + room);
+    // Scheitert der WebRTC-Aufbau (NAT/Firewall), feuert PeerJS oft gar kein Event – sonst hängt man stumm im Solo-Modus.
+    const timeout = setTimeout(() => {
+      if (c.open || hostConn !== c) return;
+      c.close(); hostConn = null;
+      toast(`Keine Verbindung zu Raum ${room} – Netzwerk blockiert die Verbindung. Seite neu laden zum erneuten Versuch.`, 8000);
+    }, 30000);
+    c.on('open', () => { clearTimeout(timeout); attach(c); active = true; updateHud(); toast(`Raum ${room} beigetreten`, 3000); });
+    c.on('error', (e) => console.warn('MP: Verbindung zum Host', e));
   }
 
   function start(name, code) {
     myName = (name || '').trim() || 'Cowboy'; myColor = Math.floor(Math.random() * COLORS.length);
-    if (typeof Peer === 'undefined') { status('Mehrspieler nicht verfügbar (PeerJS blockiert). Solo-Modus.'); return; }
-    if (!code) {
-      isHost = true; room = Math.random().toString(36).slice(2, 6).toUpperCase();
-      peer = new Peer(PREFIX + room);
-      peer.on('open', (id) => { myId = id; active = true; updateHud(); toast(`Raumcode: ${room} – Freunde geben ihn ein`, 8000); });
-      peer.on('connection', (c) => { c.on('open', () => { conns.set(c.peer, c); attach(c); }); });
-      peer.on('error', (e) => toast('Netzwerkfehler: ' + e.type, 4000));
-    } else {
-      room = code.trim().toUpperCase(); peer = new Peer();
-      peer.on('open', (id) => {
-        myId = id; hostConn = peer.connect(PREFIX + room);
-        hostConn.on('open', () => { attach(hostConn); active = true; updateHud(); toast(`Raum ${room} beigetreten`, 3000); });
-      });
-      peer.on('error', (e) => toast(e.type === 'peer-unavailable' ? `Raum ${room} nicht gefunden` : 'Netzwerkfehler: ' + e.type, 5000));
-    }
+    if (typeof Peer === 'undefined') { toast('Mehrspieler nicht verfügbar (PeerJS blockiert). Solo-Modus.', 5000); return; }
+    code = (code || '').trim().toUpperCase();
+    if (!code) hostRoom();
+    else { room = code; joinRoom(); }
   }
 
   window.MP = {
