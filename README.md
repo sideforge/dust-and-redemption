@@ -12,6 +12,16 @@ python -m http.server 8123
 
 Dann `http://localhost:8123` öffnen.
 
+## Mehrspieler
+
+Peer-to-Peer über WebRTC (PeerJS), daher reicht statisches Hosting (z. B. Vercel). Leeres Raumcode-Feld eröffnet einen Raum, Freunde geben den Code ein oder öffnen `?room=CODE`.
+
+Spieler in verschiedenen Netzen (Mobilfunk, CGNAT, Firmen-WLAN) brauchen oft einen TURN-Server. Die öffentlichen PeerJS-TURN-Server sind unzuverlässig; eigene Zugangsdaten (z. B. kostenlos bei metered.ca oder Cloudflare) vor `js/mp.js` in `index.html` eintragen:
+
+```html
+<script>window.MP_TURN = [{ urls: 'turn:…:3478', username: '…', credential: '…' }];</script>
+```
+
 ## Steuerung
 
 | Taste | Aktion |
